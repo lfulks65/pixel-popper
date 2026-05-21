@@ -1,0 +1,558 @@
+/* ── PIXEL POPPER — UI Layer Styles ─────────────────────────────────── */
+
+/* Color palette */
+:root {
+  --color-bg: #0a0a1a;
+  --color-bg-dark: rgba(0, 0, 0, 0.75);
+  --color-neon-pink: #ff2d75;
+  --color-neon-blue: #00e5ff;
+  --color-neon-green: #39ff14;
+  --color-neon-yellow: #ffe600;
+  --color-text: #ffffff;
+  --color-text-muted: rgba(255, 255, 255, 0.6);
+  --color-overlay: rgba(10, 10, 26, 0.88);
+  --color-button: rgba(255, 255, 255, 0.12);
+  --color-button-hover: rgba(255, 255, 255, 0.22);
+  --color-button-active: rgba(255, 255, 255, 0.30);
+  --color-star-empty: rgba(255, 255, 255, 0.15);
+  --color-star-half: rgba(255, 230, 0, 0.4);
+  --color-star-full: #ffe600;
+  --color-success: #39ff14;
+  --color-fail: #ff2d75;
+  --font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --transition-speed: 250ms;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* ── Reset / Base ───────────────────────────────────────────────────── */
+
+.pixel-popper-ui {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family);
+  color: var(--color-text);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  pointer-events: auto;
+}
+
+/* ── Screen Container ───────────────────────────────────────────────── */
+
+.pixel-popper-ui .screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-speed) ease,
+              visibility var(--transition-speed) ease;
+  pointer-events: none;
+}
+
+.pixel-popper-ui .screen.active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* Fade-out transition for leaving screens */
+.pixel-popper-ui .screen.fade-out {
+  opacity: 0;
+}
+
+/* ── Safe Area ──────────────────────────────────────────────────────── */
+
+.pixel-popper-ui .safe-top {
+  padding-top: var(--safe-top);
+}
+.pixel-popper-ui .safe-bottom {
+  padding-bottom: var(--safe-bottom);
+}
+
+/* ── Buttons (touch-friendly minimum 44px) ──────────────────────────── */
+
+.pixel-popper-ui .pp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  min-width: 48px;
+  padding: 12px 24px;
+  font-family: var(--font-family);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--color-text);
+  background: var(--color-button);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background 150ms ease, transform 100ms ease,
+              border-color 150ms ease;
+  touch-action: manipulation;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.pixel-popper-ui .pp-btn:active {
+  background: var(--color-button-active);
+  transform: scale(0.96);
+}
+
+.pixel-popper-ui .pp-btn:focus-visible {
+  outline: 2px solid var(--color-neon-blue);
+  outline-offset: 2px;
+}
+
+/* Primary button (neon accent) */
+.pixel-popper-ui .pp-btn--primary {
+  background: var(--color-neon-pink);
+  border-color: var(--color-neon-pink);
+  box-shadow: 0 0 12px rgba(255, 45, 117, 0.4);
+}
+
+.pixel-popper-ui .pp-btn--primary:active {
+  background: #e02568;
+}
+
+/* Icon-only buttons */
+.pixel-popper-ui .pp-btn--icon {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 10px;
+  font-size: 22px;
+  border-radius: 10px;
+}
+
+/* Small variant */
+.pixel-popper-ui .pp-btn--sm {
+  min-height: 40px;
+  font-size: 15px;
+  padding: 8px 16px;
+  border-radius: 8px;
+}
+
+/* ── Title Typography ───────────────────────────────────────────────── */
+
+.pixel-popper-ui .title-glow {
+  font-size: clamp(28px, 8vw, 48px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow:
+    0 0 4px #fff,
+    0 0 10px var(--color-neon-pink),
+    0 0 20px var(--color-neon-pink),
+    0 0 40px var(--color-neon-pink),
+    0 0 80px var(--color-neon-pink);
+  text-align: center;
+  animation: title-pulse 3s ease-in-out infinite;
+}
+
+@keyframes title-pulse {
+  0%, 100% { text-shadow: 0 0 4px #fff, 0 0 10px var(--color-neon-pink), 0 0 20px var(--color-neon-pink), 0 0 40px var(--color-neon-pink); }
+  50% { text-shadow: 0 0 4px #fff, 0 0 14px var(--color-neon-pink), 0 0 30px var(--color-neon-pink), 0 0 60px var(--color-neon-pink), 0 0 100px var(--color-neon-pink); }
+}
+
+/* Subtitle text */
+.pixel-popper-ui .subtitle {
+  font-size: clamp(14px, 3.5vw, 18px);
+  color: var(--color-text-muted);
+  text-align: center;
+  margin-top: 4px;
+}
+
+/* ── Spinner (pixel-art loader) ─────────────────────────────────────── */
+
+.pixel-popper-ui .spinner {
+  width: 48px;
+  height: 48px;
+  margin: 24px auto;
+  border: 4px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--color-neon-pink);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  image-rendering: pixelated;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Stars ──────────────────────────────────────────────────────────── */
+
+.pixel-popper-ui .stars {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.pixel-popper-ui .star {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  line-height: 1;
+  filter: drop-shadow(0 0 4px rgba(255, 230, 0, 0.3));
+}
+
+.pixel-popper-ui .star.earned {
+  color: var(--color-star-full);
+  animation: star-pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.pixel-popper-ui .star.empty {
+  color: var(--color-star-empty);
+}
+
+@keyframes star-pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Progress / Gauge Bars ──────────────────────────────────────────── */
+
+.pixel-popper-ui .progress-bar {
+  flex: 1;
+  height: 12px;
+  max-width: 240px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0 8px;
+}
+
+.pixel-popper-ui .progress-bar__fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-neon-blue), var(--color-neon-green));
+  border-radius: 6px;
+  transition: width 300ms ease;
+}
+
+/* ── Collector Gauge (colored circles) ──────────────────────────────── */
+
+.pixel-popper-ui .collector-gauge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.pixel-popper-ui .collector-gauge__circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.pixel-popper-ui .collector-gauge__circle--filled {
+  border-color: transparent;
+}
+
+.pixel-popper-ui .collector-gauge__fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--color-neon-blue);
+  transition: height 300ms ease;
+}
+
+/* ── Level Grid ─────────────────────────────────────────────────────── */
+
+.pixel-popper-ui .level-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  align-content: start;
+  flex: 1;
+}
+
+.pixel-popper-ui .level-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  padding: 12px;
+  background: var(--color-button);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 150ms ease, transform 100ms ease, border-color 150ms ease;
+  touch-action: manipulation;
+  position: relative;
+}
+
+.pixel-popper-ui .level-btn:active {
+  transform: scale(0.95);
+}
+
+.pixel-popper-ui .level-btn.locked {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+.pixel-popper-ui .level-btn.locked:active {
+  transform: none;
+}
+
+.pixel-popper-ui .level-btn .level-number {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.pixel-popper-ui .level-btn .level-stars {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.pixel-popper-ui .level-btn .level-stars .star {
+  width: 18px;
+  height: 18px;
+  font-size: 14px;
+}
+
+.pixel-popper-ui .level-btn .lock-icon {
+  font-size: 24px;
+  opacity: 0.6;
+}
+
+/* ── Scrollbar styling ──────────────────────────────────────────────── */
+
+.pixel-popper-ui .level-grid::-webkit-scrollbar {
+  width: 4px;
+}
+
+.pixel-popper-ui .level-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pixel-popper-ui .level-grid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+/* ── HUD ────────────────────────────────────────────────────────────── */
+
+.pixel-popper-ui .hud-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(8px + var(--safe-top)) 12px 8px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 100%);
+}
+
+.pixel-popper-ui .hud-level {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text);
+  flex-shrink: 0;
+}
+
+.pixel-popper-ui .hud-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px calc(8px + var(--safe-bottom));
+  background: linear-gradient(0deg, rgba(0,0,0,0.6) 0%, transparent 100%);
+}
+
+/* ── Win Celebration Animation ──────────────────────────────────────── */
+
+@keyframes celebrate-title {
+  0% { transform: scale(0.5); opacity: 0; }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.pixel-popper-ui .celebration-title {
+  font-size: clamp(22px, 6vw, 36px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-success);
+  text-shadow:
+    0 0 8px var(--color-success),
+    0 0 20px var(--color-success),
+    0 0 40px rgba(57, 255, 20, 0.4);
+  animation: celebrate-title 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ── Fail Screen ────────────────────────────────────────────────────── */
+
+.pixel-popper-ui .fail-title {
+  font-size: clamp(22px, 6vw, 36px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fail);
+  text-shadow:
+    0 0 8px var(--color-fail),
+    0 0 20px var(--color-fail),
+    0 0 40px rgba(255, 45, 117, 0.4);
+}
+
+.pixel-popper-ui .fail-reason {
+  font-size: 17px;
+  color: var(--color-text-muted);
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* ── Toggle / Switch ────────────────────────────────────────────────── */
+
+.pixel-popper-ui .toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.pixel-popper-ui .toggle__track {
+  width: 44px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  position: relative;
+  transition: background 200ms ease;
+}
+
+.pixel-popper-ui .toggle__track.on {
+  background: var(--color-neon-blue);
+}
+
+.pixel-popper-ui .toggle__thumb {
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: left 200ms ease;
+}
+
+.pixel-popper-ui .toggle__track.on .toggle__thumb {
+  left: 22px;
+}
+
+/* ── Menu / Overlay Common ──────────────────────────────────────────── */
+
+.pixel-popper-ui .overlay-bg {
+  position: absolute;
+  inset: 0;
+  background: var(--color-overlay);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pixel-popper-ui .overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.pixel-popper-ui .overlay-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  margin-top: 12px;
+}
+
+/* ── Menu Layout (title at top 20%) ─────────────────────────────────── */
+
+.pixel-popper-ui .menu-layout {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(20vh + var(--safe-top)) 24px var(--safe-bottom);
+  align-items: center;
+}
+
+.pixel-popper-ui .menu-layout .menu-buttons {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 320px;
+}
+
+/* ── Score Display ──────────────────────────────────────────────────── */
+
+.pixel-popper-ui .coin-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  color: var(--color-neon-yellow);
+  font-weight: 600;
+}
+
+.pixel-popper-ui .coin-icon {
+  font-size: 20px;
+}
+
+/* ── No horizontal scroll anywhere ──────────────────────────────────── */
+
+.pixel-popper-ui * {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+/* ── Responsive: very small screens ─────────────────────────────────── */
+
+@media (max-width: 360px) {
+  .pixel-popper-ui .level-grid {
+    gap: 8px;
+    padding: 12px;
+  }
+  .pixel-popper-ui .level-btn {
+    min-height: 80px;
+    padding: 8px;
+  }
+  .pixel-popper-ui .level-btn .level-number {
+    font-size: 24px;
+  }
+  .pixel-popper-ui .pp-btn {
+    font-size: 16px;
+    padding: 10px 20px;
+  }
+}
