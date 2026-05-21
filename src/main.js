@@ -1,58 +1,54 @@
+/**
+ * main.js — Entry point. Wires together renderer, scene, engine, and orientation.
+ */
+
 import * as THREE from 'three';
+import { createRenderer, getRenderer, handleResize } from './renderer.js';
+import { createScene, getScene, getCamera, updateCameraAspect } from './scene.js';
+import { createEngine, GameState } from './engine.js';
+import { initOrientation, isPortraitOrientation } from './orientation.js';
 
-// --- Scene setup ---
-const canvas = document.getElementById('canvas');
+// ── 1. Orientation ──
+initOrientation();
 
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  antialias: true,
-  alpha: false,
+// ── 2. Renderer ──
+const renderer = createRenderer('game-container');
+
+// ── 3. Scene ──
+const { scene, camera } = createScene(renderer);
+
+// ── 4. Game object for demo ──
+const cubeGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+const cubeMaterial = new THREE.MeshStandardMaterial({
+  color: 0x00ff88,
+  emissive: 0x004422,
+  roughness: 0.3,
+  metalness: 0.6,
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x1a1a2e, 1);
-
-const scene = new THREE.Scene();
-
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
-camera.position.z = 5;
-
-// --- Resize handling ---
-function onResize() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-  renderer.setSize(w, h);
-}
-window.addEventListener('resize', onResize);
-
-// --- Simple geometry for verification (a colored cube) ---
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshStandardMaterial({ color: 0x00ff88 });
-const cube = new THREE.Mesh(geometry, material);
+const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
 scene.add(cube);
 
-// --- Lighting ---
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-scene.add(ambientLight);
+// ── 5. Engine ──
+const engine = createEngine({
+  renderer,
+  scene,
+  camera,
+  update(deltaTime) {
+    // Rotate the sample cube during gameplay
+    if (engine.getState() === GameState.PLAYING) {
+      cube.rotation.x += deltaTime * 0.8;
+      cube.rotation.y += deltaTime * 1.2;
+    }
+  },
+});
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-directionalLight.position.set(5, 5, 5);
-scene.add(directionalLight);
+// ── 6. Wire resize to both renderer and camera ──
+window.addEventListener('renderer:resize', () => {
+  updateCameraAspect(window.innerWidth, window.innerHeight);
+});
 
-// --- Render loop ---
-function animate() {
-  requestAnimationFrame(animate);
-  cube.rotation.x += 0.01;
-  cube.rotation.y += 0.01;
-  renderer.render(scene, camera);
-}
-animate();
+// ── 7. Start game ──
+engine.start();
+engine.startGame(); // loading → menu → playing
 
-console.log('Pixel Popper initialized — Three.js renderer ready.');
+console.log('Pixel Popper engine initialized — renderer + scene + engine ready.');
