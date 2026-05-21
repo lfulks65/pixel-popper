@@ -1,8 +1,8 @@
 /**
- * engine.js — Game engine with animation loop, state machine, and FPS counter.
+ * Engine.js — Game engine loop with state machine, delta timing, pause/resume.
  *
  * State machine: loading → menu → playing → paused → win → fail
- * Supports pause/resume/restart. Logs FPS to console.
+ * Supports pause/resume, fixed timestep, FPS tracking.
  */
 
 // ── State constants ──
@@ -19,12 +19,12 @@ export const GameState = Object.freeze({
  * Transition graph — which states you can move to from each state.
  */
 const TRANSITIONS = {
-  [GameState.LOADING]:   [GameState.MENU],
-  [GameState.MENU]:      [GameState.PLAYING],
-  [GameState.PLAYING]:   [GameState.PAUSED, GameState.WIN, GameState.FAIL],
-  [GameState.PAUSED]:    [GameState.PLAYING, GameState.MENU],
-  [GameState.WIN]:       [GameState.MENU],
-  [GameState.FAIL]:      [GameState.MENU],
+  [GameState.LOADING]:  [GameState.MENU],
+  [GameState.MENU]:     [GameState.PLAYING],
+  [GameState.PLAYING]:  [GameState.PAUSED, GameState.WIN, GameState.FAIL],
+  [GameState.PAUSED]:   [GameState.PLAYING, GameState.MENU],
+  [GameState.WIN]:      [GameState.MENU],
+  [GameState.FAIL]:     [GameState.MENU],
 };
 
 /**
@@ -33,36 +33,36 @@ const TRANSITIONS = {
 export class Engine {
   /**
    * @param {Object} options
-   * @param {THREE.WebGLRenderer} options.renderer - The WebGLRenderer
-   * @param {THREE.Scene} options.scene - The Three.js Scene
-   * @param {THREE.Camera} options.camera - The Three.js Camera
-   * @param {Function} [options.update] - Called every frame before render
-   * @param {Function} [options.render] - Custom render override (optional)
+   * @param {number} [options.targetFps=60] Target frames per second.
+   * @param {number} [options.fixedDt=1/60] Fixed timestep in seconds.
    */
-  constructor({ renderer, scene, camera, update = null, render = null } = {}) {
-    this.renderer = renderer;
-    this.scene = scene;
-    this.camera = camera;
-    this.updateFn = update;
-    this.renderFn = render;
-
-    // Game state
+  constructor({ targetFps = 60, fixedDt = 1 / 60 } = {}) {
+    /** @type {string} Current game state */
     this.state = GameState.LOADING;
-    this.targetState = null;
+
+    /** @type {number} Fixed timestep in seconds */
+    this.fixedDelta = fixedDt;
+    this.fixedMs = (1000 / targetFps);
 
     // Timing
     this.running = false;
     this.lastTime = 0;
     this.accumulator = 0;
-    this.fixedDelta = 1000 / 60; // 60 fps fixed step (seconds * 1000)
+
+    // Callbacks
+    /** @type {Function|null} Called every frame with dt in seconds */
+    this.updateFn = null;
+    /** @type {Function|null} Called every frame for custom render */
+    this.renderFn = null;
+    /** @type {Function|null} Fixed timestep callback */
+    this.fixedUpdateFn = null;
 
     // FPS tracking
     this.frameCount = 0;
     this.fpsTime = 0;
     this.fps = 0;
-    this.showFps = true; // console log FPS periodically
 
-    // Callbacks for state changes
+    // State change callback
     this.onStateChange = null;
 
     // Bind loop
@@ -73,23 +73,19 @@ export class Engine {
 
   /**
    * Transition to a new game state.
-   * @param {string} nextState - Target state from GameState enum
-   * @throws {Error} If transition is not allowed
+   * @param {string} nextState
    */
   setState(nextState) {
     if (!TRANSITIONS[this.state]) {
       throw new Error(`No transitions defined from state "${this.state}"`);
     }
     if (!TRANSITIONS[this.state].includes(nextState)) {
-      throw new Error(
-        `Invalid transition: ${this.state} → ${nextState}`
-      );
+      throw new Error(`Invalid transition: ${this.state} → ${nextState}`);
     }
 
     const prev = this.state;
     this.state = nextState;
 
-    // Fire callback if registered
     if (this.onStateChange) {
       this.onStateChange(prev, nextState);
     }
@@ -107,18 +103,24 @@ export class Engine {
 
   // ── Game Control ──
 
-  /**
-   * Pause the game.
-   */
+  /** Get current game state. */
+  getState() {
+    return this.state;
+  }
+
+  /** Get current FPS. */
+  getFPS() {
+    return this.fps;
+  }
+
+  /** Pause the game. */
   pause() {
     if (this.state === GameState.PLAYING) {
       this.setState(GameState.PAUSED);
     }
   }
 
-  /**
-   * Resume the game from paused.
-   */
+  /** Resume the game from paused. */
   resume() {
     if (this.state === GameState.PAUSED) {
       this.setState(GameState.PLAYING);
@@ -126,8 +128,21 @@ export class Engine {
   }
 
   /**
-   * Restart the game — goes to menu then playing.
+   * Toggle pause state.
+   * @returns {boolean} True if now paused.
    */
+  togglePause() {
+    if (this.state === GameState.PLAYING) {
+      this.setState(GameState.PAUSED);
+      return true;
+    } else if (this.state === GameState.PAUSED) {
+      this.setState(GameState.PLAYING);
+      return false;
+    }
+    return false;
+  }
+
+  /** Restart the game — goes to menu then playing. */
   restart() {
     if (this.state === GameState.PLAYING ||
         this.state === GameState.PAUSED ||
@@ -138,30 +153,49 @@ export class Engine {
     }
   }
 
+  // ── Loop ──
+
   /**
-   * Transition from loading to menu (call when assets are ready).
+   * Set the per-frame update callback.
+   * @param {Function} updateFn - (dt: number) => void
    */
-  startGame() {
-    this.setState(GameState.MENU);
-    this.setState(GameState.PLAYING);
+  setUpdateFn(updateFn) {
+    this.updateFn = updateFn;
   }
 
-  // ── Loop ──
+  /**
+   * Set the per-frame render callback.
+   * @param {Function} renderFn - () => void
+   */
+  setRenderFn(renderFn) {
+    this.renderFn = renderFn;
+  }
+
+  /**
+   * Set the fixed timestep update callback.
+   * @param {Function} fixedUpdateFn - (dt: number) => void
+   */
+  setFixedUpdateFn(fixedUpdateFn) {
+    this.fixedUpdateFn = fixedUpdateFn;
+  }
 
   /**
    * Start the game loop.
    */
-  start() {
+  start(updateFn, renderFn, fixedUpdateFn) {
     if (this.running) return;
+
+    if (updateFn) this.updateFn = updateFn;
+    if (renderFn) this.renderFn = renderFn;
+    if (fixedUpdateFn) this.fixedUpdateFn = fixedUpdateFn;
+
     this.running = true;
     this.lastTime = performance.now();
     this.accumulator = 0;
     this.loop();
   }
 
-  /**
-   * Stop the game loop.
-   */
+  /** Stop the game loop. */
   stop() {
     this.running = false;
   }
@@ -182,11 +216,15 @@ export class Engine {
     this.accumulator += clampedDelta;
 
     // Fixed timestep updates
-    while (this.accumulator >= this.fixedDelta) {
-      if (this.state === GameState.PLAYING && this.updateFn) {
-        this.updateFn(this.fixedDelta / 1000); // in seconds
+    while (this.accumulator >= this.fixedMs) {
+      const dt = this.fixedDelta; // in seconds
+
+      if (this.state === GameState.PLAYING) {
+        if (this.updateFn) this.updateFn(dt);
+        if (this.fixedUpdateFn) this.fixedUpdateFn(dt);
       }
-      this.accumulator -= this.fixedDelta;
+
+      this.accumulator -= this.fixedMs;
     }
 
     // FPS counting
@@ -196,54 +234,19 @@ export class Engine {
       this.fps = Math.round((this.frameCount * 1000) / this.fpsTime);
       this.frameCount = 0;
       this.fpsTime = 0;
-      if (this.showFps) {
-        console.log(`[Engine] FPS: ${this.fps}`);
-      }
+      console.log(`[Engine] FPS: ${this.fps}`);
     }
 
-    // Render (always, even in paused/menu states for static draw)
+    // Render (always, even in paused/menu states)
     this._render();
 
     requestAnimationFrame(this.loop);
   }
 
-  /**
-   * Render the scene.
-   */
+  /** Render the scene. */
   _render() {
     if (this.renderFn) {
       this.renderFn();
-    } else if (this.renderer && this.scene && this.camera) {
-      this.renderer.render(this.scene, this.camera);
     }
   }
-
-  /**
-   * Get current game state.
-   * @returns {string}
-   */
-  getState() {
-    return this.state;
-  }
-
-  /**
-   * Get current FPS.
-   * @returns {number}
-   */
-  getFPS() {
-    return this.fps;
-  }
-}
-
-/**
- * Create a minimal engine instance with the provided renderer, scene, and camera.
- * @param {Object} params
- * @param {THREE.WebGLRenderer} params.renderer
- * @param {THREE.Scene} params.scene
- * @param {THREE.Camera} params.camera
- * @param {Function} [params.update] - Per-frame update callback
- * @returns {Engine}
- */
-export function createEngine({ renderer, scene, camera, update } = {}) {
-  return new Engine({ renderer, scene, camera, update });
 }
