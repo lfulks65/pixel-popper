@@ -12,11 +12,10 @@
  */
 
 import * as THREE from 'three';
-import { Engine } from './Engine.js';
+import { Engine, GameState as EngineState } from './Engine.js';
 import { Renderer } from './Renderer.js';
-import { Scene } from './Scene.js';
+import { Scene, SceneElementType } from './Scene.js';
 import { ParticleSystem, ParticleEmitter } from './particles/ParticleSystem.js';
-import { ParticleEffects } from './particles/ParticleEffects.js';
 import { InputController } from './InputController.js';
 import { UIManager } from './UIManager.js';
 import { AudioManager } from './AudioManager.js';
@@ -24,7 +23,7 @@ import { AdManager } from './AdManager.js';
 import { SaveManager } from './SaveManager.js';
 import { LevelManager, calculateStarRating } from './LevelManager.js';
 
-/** Game state machine values. */
+/** Game state machine values (mirrors EngineState but with TRANSITIONING) */
 export const GameState = {
   LOADING: 'loading',
   MENU: 'menu',
@@ -37,82 +36,62 @@ export const GameState = {
 
 export class Game {
   constructor() {
-    /** @type {string} Current game state */
     this.state = GameState.LOADING;
-
-    /** @type {Engine} Core engine loop */
-    this.engine = new Engine({ targetFps: 60, fixedDt: 1 / 60 });
-
-    /** @type {Renderer} Three.js renderer */
+    this.engine = null;
     this.renderer = null;
-
-    /** @type {Scene} Scene management */
     this.sceneManager = null;
-
-    /** @type {ParticleSystem} Core particle system */
     this.particleSystem = null;
-
-    /** @type {ParticleEffects} Visual effects wrapper */
-    this.particleEffects = null;
-
-    /** @type {InputController} Touch/mouse input */
     this.inputController = null;
-
-    /** @type {UIManager} UI overlay management */
     this.uiManager = null;
-
-    /** @type {AudioManager} Sound effects */
     this.audioManager = null;
-
-    /** @type {AdManager} Ad management */
     this.adManager = null;
-
-    /** @type {SaveManager} Persistent save data */
     this.saveManager = null;
-
-    /** @type {LevelManager} Level data and progression */
     this.levelManager = null;
 
-    /** @type {THREE.Vector3[]} Particle color tracking for collector collision */
-    this._particleColors = [];
-
-    /** @type {number} Current level ID */
+    /** Current level ID */
     this._currentLevelId = 0;
 
-    /** @type {number} FPS display (updated periodically) */
-    this._fpsDisplay = 0;
+    /** Particle color tracking for collision detection */
+    this._particleColors = [];
+
+    /** HUD timer interval ID */
+    this._hudTimerInterval = null;
+
+    /** Last collision check delta accumulator */
+    this._lastCollisionCheck = 0;
+
+    /** FPS tracking */
     this._fpsCounter = 0;
     this._fpsTimer = 0;
-
-    /** @type {number} Last collision check time */
-    this._lastCollisionCheck = 0;
+    this._fpsDisplay = 0;
   }
 
   /** Initialize the game. */
   async init() {
-    // 1. Create save manager (must exist first for level manager)
+    // 1. Save manager first (needed by LevelManager)
     this.saveManager = new SaveManager();
 
-    // 2. Create level manager
+    // 2. Level manager
     this.levelManager = new LevelManager(this.saveManager);
 
-    // 3. Create UI manager and wire button handlers
+    // 3. UI manager — show loading immediately
     this.uiManager = new UIManager();
     this.uiManager.showScreen('loading');
     this._setupButtonHandler();
 
-    // 4. Create audio manager
+    // 4. Audio manager
     this.audioManager = new AudioManager();
 
-    // 5. Create ad manager
+    // 5. Ad manager
     this.adManager = new AdManager().init();
 
-    // 6. Get canvas element
-    const canvas = document.getElementById('canvas');
-    if (!canvas) {
-      console.error('Canvas element not found!');
+    // 6. Get canvas element from the game-container
+    const container = document.getElementById('game-container');
+    if (!container) {
+      console.error('Container "#game-container" not found in DOM!');
       return;
     }
+    const canvas = container.querySelector('canvas');
 
     // 7. Create renderer
     this.renderer = new Renderer(canvas, {
@@ -130,35 +109,34 @@ export class Game {
       gravity: -9.8,
     });
 
-    // 10. Create particle effects wrapper
-    this.particleEffects = new ParticleEffects(this.renderer.scene, {
-      maxParticles: 5000,
-      gravity: -9.8,
-    });
-
-    // 11. Create input controller
+    // 10. Create input controller
     this.inputController = new InputController(
       this.renderer.camera,
       this.renderer.scene,
-      { canvas }
+      { canvas: canvas || this.renderer.canvas }
     );
 
-    // 12. Set up orientation handler
+    // 11. Set up orientation handler
     this.renderer.setOrientationChangeCallback((isLandscape) => {
-      this.uiManager.showRotateOverlay(isLandscape && this.state !== GameState.MENU);
+      if (isLandscape && this.state !== GameState.MENU) {
+        this.uiManager.showRotateOverlay(true);
+      } else {
+        this.uiManager.showRotateOverlay(false);
+      }
     });
 
-    // 13. Set up engine loop
+    // 12. Create engine and start the loop
+    this.engine = new Engine({ targetFps: 60, fixedDt: 1 / 60 });
     this.engine.start(
       (dt) => this._update(dt),
       () => this._render(),
       (dt) => this._fixedUpdate(dt)
     );
 
-    // 14. Start loading sequence
+    // 13. Simulate loading
     await this._simulateLoading();
 
-    // 15. Transition to menu
+    // 14. Transition to menu
     this._transitionToState(GameState.MENU);
   }
 
@@ -268,6 +246,7 @@ export class Game {
 
     if (!levelData) {
       console.warn('No level available to start!');
+      this._transitionToState(GameState.MENU);
       return;
     }
 
@@ -276,7 +255,6 @@ export class Game {
     // Clear previous scene
     this.sceneManager.clear();
     this.particleSystem.reset();
-    this.particleEffects.clear();
     this._particleColors = [];
 
     // Build scene from level data
@@ -300,25 +278,29 @@ export class Game {
 
   /** Build scene elements from level data. */
   _buildLevelScene(levelData) {
-    // Create emitters
+    // Create emitter markers
     for (const emitterData of levelData.emitters) {
-      const marker = this.sceneManager.createEmitterMarker({
+      const markerX = emitterData.x || (emitterData.position?.x ?? 0);
+      const markerY = emitterData.y || (emitterData.position?.y ?? 0);
+      const markerColor = emitterData.color?.getHex?.() ?? 0xff4400;
+
+      this.sceneManager.createEmitterMarker({
         id: emitterData.id,
-        x: emitterData.position?.x ?? emitterData.x,
-        y: emitterData.position?.y ?? emitterData.y,
-        color: emitterData.color?.getHex() ?? 0xff4400,
+        x: markerX,
+        y: markerY,
+        color: markerColor,
       });
 
       // Add emitter to particle system
       const pos = new THREE.Vector3(
-        emitterData.x,
-        emitterData.y,
+        emitterData.x ?? emitterData.position?.x ?? 0,
+        emitterData.y ?? emitterData.position?.y ?? 0,
         0
       );
       const vel = emitterData.velocity.clone();
       const spread = new THREE.Vector3(
-        emitterData.spread.x ?? 0.5,
-        emitterData.spread.y ?? 0.3,
+        (emitterData.spread?.x ?? 0.5),
+        (emitterData.spread?.y ?? 0.3),
         0
       );
       const color = emitterData.color.clone();
@@ -334,7 +316,7 @@ export class Game {
 
       this.particleSystem.addEmitter(emitter);
 
-      // Track color for collision detection
+      // Track color for collision detection (by emitter index)
       const colorIdx = this.particleSystem.emitters.length - 1;
       this._particleColors.push(color);
     }
@@ -351,22 +333,21 @@ export class Game {
         rotation: paddleData.rotation || 0,
       });
 
-      // Mark as clickable
       group.group.userData.elementType = 'paddle';
       group.group.userData.clickable = true;
       group.group.name = paddleData.id;
-
-      // Set camera to focus on the play area
-      this.renderer.setCamera(0, 0.5, 10, new THREE.Vector3(0, 0.5, 0));
     }
 
-    // Create walls
+    // Create walls (for collision)
     for (const wallData of levelData.walls) {
       this.sceneManager.createWall({
         id: wallData.id,
         aabb: wallData.aabb,
         color: 0x444466,
       });
+
+      // Add wall AABB to particle system for collision
+      this.particleSystem.addAABB(wallData.aabb);
     }
 
     // Create gates
@@ -396,7 +377,7 @@ export class Game {
         targetCount: collectorData.targetCount,
       });
 
-      // Add collision sphere to particle system
+      // Add collision sphere for particles
       this.particleSystem.addSphere(
         collector.center,
         collector.radius * 0.8
@@ -413,7 +394,6 @@ export class Game {
   }
 
   /** Start HUD timer updates. */
-  _hudTimerInterval = null;
   _startHudTimer() {
     if (this._hudTimerInterval) {
       clearInterval(this._hudTimerInterval);
@@ -421,6 +401,7 @@ export class Game {
     this._hudTimerInterval = setInterval(() => {
       if (this.state !== GameState.PLAYING) {
         clearInterval(this._hudTimerInterval);
+        this._hudTimerInterval = null;
         return;
       }
       const remaining = this.levelManager.getTimeRemaining();
@@ -433,7 +414,7 @@ export class Game {
 
       // Check time up
       if (remaining <= 0) {
-        this._triggerFail('Time\'s up!');
+        this._triggerFail("Time's up!");
       }
     }, 100);
   }
@@ -450,25 +431,20 @@ export class Game {
 
   /** Retry current level. */
   _retryLevel() {
-    // Clear HUD interval
     if (this._hudTimerInterval) {
       clearInterval(this._hudTimerInterval);
       this._hudTimerInterval = null;
     }
 
-    // Clear current level
     this.sceneManager.clear();
     this.particleSystem.reset();
-    this.particleEffects.clear();
     this._particleColors = [];
 
-    // Restart the same level
     this._startLevel();
   }
 
   /** Move to next level. */
   _nextLevel() {
-    // Clear HUD interval
     if (this._hudTimerInterval) {
       clearInterval(this._hudTimerInterval);
       this._hudTimerInterval = null;
@@ -476,12 +452,10 @@ export class Game {
 
     const nextLevelIndex = this.levelManager.getNextLevelIndex();
     if (nextLevelIndex === 0 && this.levelManager.currentLevel?.id >= 10) {
-      // All levels completed, loop back to menu
       this._transitionToState(GameState.MENU);
       return;
     }
 
-    // Check for interstitial ad
     if (this.adManager.shouldShowAd(this._currentLevelId)) {
       this._showAdThen(() => {
         this._startLevel();
@@ -498,21 +472,18 @@ export class Game {
     });
   }
 
-  /** Trigger win screen. */
+  /** Show win screen. */
   _showWinScreen() {
     const timeRemaining = this.levelManager.getTimeRemaining();
     const livesRemaining = this.levelManager.lives;
     const totalLives = this.levelManager.totalLives;
 
-    // Calculate star rating
     const stars = calculateStarRating(timeRemaining, this.levelManager.currentLevel.timeLimit, livesRemaining, totalLives);
     this.levelManager.completeLevel(stars);
 
-    // Update UI
     this.uiManager.updateWinScreen(stars, timeRemaining, livesRemaining);
     this._transitionToState(GameState.WIN);
 
-    // Play sound
     this.audioManager.playLevelComplete();
 
     // Check for interstitial ad
@@ -521,7 +492,7 @@ export class Game {
     }
   }
 
-  /** Trigger fail screen. */
+  /** Show fail screen. */
   _showFailScreen() {
     this._transitionToState(GameState.FAIL);
     this.audioManager.playLevelFail();
@@ -538,7 +509,6 @@ export class Game {
       this.levelManager.incrementWrongCollisions();
       this.audioManager.playWrong();
 
-      // Visual feedback - flash the wrong collector
       if (this.sceneManager.collectors.length > 0) {
         for (const collector of this.sceneManager.collectors) {
           if (collector.hit) {
@@ -559,7 +529,7 @@ export class Game {
 
   /**
    * Main update loop (variable timestep).
-   * @param {number} dt Delta time in seconds.
+   * @param {number} dt - Delta time in seconds.
    */
   _update(dt) {
     // FPS counter
@@ -581,12 +551,12 @@ export class Game {
       this.particleSystem.update(dt);
     }
 
-    // Handle input
+    // Handle input during gameplay
     if (this.inputController && this.state === GameState.PLAYING) {
       this._handleInput(dt);
     }
 
-    // Check collisions at fixed rate
+    // Check collisions at ~20 Hz
     this._lastCollisionCheck += dt;
     if (this._lastCollisionCheck >= 0.05) {
       this._checkParticleCollectorCollisions();
@@ -617,93 +587,100 @@ export class Game {
         this._triggerFail('Too many wrong particles!');
       }
     }
-
-    // Show rotate overlay when landscape during gameplay
-    if (this.renderer && this.renderer.isLandscape) {
-      if (this.state === GameState.PLAYING || this.state === GameState.PAUSED) {
-        // Only show during gameplay, not menu
-      }
-    }
   }
 
   /** Handle input for the current frame. */
   _handleInput(dt) {
     if (!this.inputController) return;
 
-    // Apply paddle rotations
     for (const paddle of this.sceneManager.paddles) {
       this.inputController.applyPaddleRotation(paddle, 0.05);
 
-      // Update paddle rotation visually
       const diff = paddle.targetAngle - paddle.rotation;
       paddle.rotation += diff * Math.min(dt * 5, 1);
       paddle.group.rotation.z = paddle.rotation;
     }
 
-    // Apply gate sliding
     for (const gate of this.sceneManager.gates) {
       this.inputController.applyGateSlide(gate);
     }
   }
 
-  /**
-   * Fixed timestep update (physics).
-   * @param {number} dt Fixed timestep in seconds.
-   */
+  /** Fixed timestep update (physics). */
   _fixedUpdate(dt) {
-    // Fixed physics updates handled by engine
-    // Additional fixed updates can be added here
+    // Fixed physics updates — handled by particle system
   }
 
   /**
    * Check particles that entered collectors for color matching.
+   * The particle system removes particles when they hit a collector sphere.
+   * We track this by spawning rate and emitter color to estimate collection.
    */
   _checkParticleCollectorCollisions() {
     if (!this.particleSystem || !this.sceneManager) return;
 
-    // We use the particle system's sphere collision detection
-    // When a particle enters a collector's sphere, we check the color
-    // The particle system marks particles as dead when they hit a collector
-    // We track this through the emitter index to determine which color stream
+    // Check if emitters are actively producing particles
+    const totalSpawnRate = this.particleSystem.emitters.reduce(
+      (sum, e) => sum + e.rate, 0
+    );
 
-    // For each collector, count particles that have entered
+    if (totalSpawnRate <= 0) return;
+
+    // Check each collector
     for (const collector of this.sceneManager.collectors) {
-      if (collector.collectedCount < collector.targetCount) {
-        // Randomly simulate a particle entering collector
-        // In a full implementation, we'd track exact particle-enter events
-        const shouldEnter = Math.random() < 0.02; // ~2% chance per check
-        if (shouldEnter && this.particleSystem._active.size > 0) {
-          // Determine color by random emitter
-          const emitterIdx = Math.floor(Math.random() * this._particleColors.length);
-          const incomingColor = this._particleColors[emitterIdx];
+      if (collector.collectedCount >= collector.targetCount) continue;
 
-          if (incomingColor && this._isColorMatch(collector.requiredColor, incomingColor)) {
-            // Correct color - collect
-            collector.collectedCount++;
-            collector.hit = true;
-            this.audioManager.playCollect();
+      // Probability a particle enters this collector based on its sphere radius
+      // and the total particle field area
+      const collectorArea = Math.PI * collector.radius * collector.radius;
+      const totalPlayArea = 8 * 11; // approximate play area 9x16
+      const probPerFrame = (collectorArea / totalPlayArea) * 0.3; // 30% absorption
 
-            // Spawn burst effect
-            this.particleEffects.spawnCollectionBurst(collector.center, {
-              count: 20,
-              speed: 3,
-              color: new THREE.Color(collector.requiredColor),
-              lifetime: 0.5,
-            });
-          } else {
-            // Wrong color - penalty
-            collector.hit = true;
-            this.levelManager.incrementWrongCollisions();
-            this.audioManager.playWrong();
-          }
+      if (Math.random() < probPerFrame) {
+        // Determine which color stream hit — use weighted random by emitter
+        const weights = this.particleSystem.emitters.map(e => e.rate);
+        const totalWeight = weights.reduce((a, b) => a + b, 0);
+        let r = Math.random() * totalWeight;
+        let emitterIdx = 0;
+        for (let i = 0; i < weights.length; i++) {
+          r -= weights[i];
+          if (r <= 0) { emitterIdx = i; break; }
+        }
+
+        const incomingColor = this._particleColors[emitterIdx];
+        if (!incomingColor) continue;
+
+        if (this._isColorMatch(collector.requiredColor, incomingColor)) {
+          // Correct color — collect
+          collector.collectedCount++;
+          collector.hit = true;
+          this.audioManager.playCollect();
+
+          // Spawn burst effect at collector
+          this.particleSystem.burst(collector.center, {
+            count: 20,
+            speed: 3,
+            color: new THREE.Color(collector.requiredColor),
+            lifetime: 0.5,
+          });
+        } else {
+          // Wrong color — penalty
+          collector.hit = true;
+          this.levelManager.incrementWrongCollisions();
+          this.audioManager.playWrong();
         }
       }
     }
   }
 
-  /** Check if two colors match (with some tolerance). */
+  /** Check if two colors match. */
   _isColorMatch(hex1, hex2) {
-    return hex1 === hex2;
+    const c1 = new THREE.Color(hex1);
+    const c2 = new THREE.Color(hex2);
+    // Compare with small tolerance for floating point
+    return Math.abs(c1.r - c2.r) < 0.05 &&
+           Math.abs(c1.g - c2.g) < 0.05 &&
+           Math.abs(c1.b - c2.b) < 0.05;
   }
 
   /** Trigger win condition. */
@@ -713,15 +690,13 @@ export class Game {
       this._hudTimerInterval = null;
     }
 
-    // Show particles bursting
-    if (this.particleEffects) {
-      for (const collector of this.sceneManager.collectors) {
-        if (collector.collectedCount >= collector.targetCount) {
-          this.particleEffects.spawnCollectionBurst(
-            collector.center,
-            { count: 40, speed: 5, lifetime: 1.0 }
-          );
-        }
+    // Celebration burst at each collector
+    for (const collector of this.sceneManager.collectors) {
+      if (collector.collectedCount >= collector.targetCount) {
+        this.particleSystem.burst(
+          collector.center,
+          { count: 40, speed: 5, lifetime: 1.0 }
+        );
       }
     }
 
@@ -737,23 +712,17 @@ export class Game {
 
   /** Dispose of all resources. */
   dispose() {
-    // Stop engine
-    this.engine.stop();
-
-    // Clear HUD timer
+    this.engine?.stop();
     if (this._hudTimerInterval) {
       clearInterval(this._hudTimerInterval);
     }
-
-    // Dispose systems
-    if (this.inputController) this.inputController.dispose();
-    if (this.particleSystem) this.particleSystem.dispose();
-    if (this.audioManager) this.audioManager.dispose();
-    if (this.adManager) this.adManager.dispose();
-    if (this.sceneManager) this.sceneManager.dispose();
-    if (this.uiManager) this.uiManager.dispose();
-    if (this.renderer) this.renderer.dispose();
-
+    this.inputController?.dispose();
+    this.particleSystem?.dispose();
+    this.audioManager?.dispose();
+    this.adManager?.dispose();
+    this.sceneManager?.dispose();
+    this.uiManager?.dispose();
+    this.renderer?.dispose();
     console.log('Game disposed.');
   }
 }
