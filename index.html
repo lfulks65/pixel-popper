@@ -21,7 +21,6 @@
       }
 
       body {
-        /* Target 9:16 portrait aspect ratio */
         width: 100vw;
         height: 100vh;
         display: flex;
@@ -29,17 +28,33 @@
         justify-content: center;
       }
 
-      canvas {
-        display: block;
+      /* Game container — canvas renders inside here */
+      #game-container {
         width: 100%;
         height: 100%;
+        position: relative;
+      }
+
+      /* Orientation overlay styling (managed by orientation.js) */
+      #orientation-overlay {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.85);
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        color: #00d4ff;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        text-align: center;
+        padding: 20px;
       }
     </style>
   </head>
   <body>
-    <div id="app">
-      <canvas id="canvas"></canvas>
-    </div>
+    <div id="game-container"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
