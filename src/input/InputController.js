@@ -142,9 +142,11 @@ function _createRipple(scene, position) {
 /**
  * Track state for a single active touch.
  *
- * Maintains previousPosition so each update() call computes the actual
- * movement delta (current − previous), avoiding the pitfall of computing
- * delta against an already-updated position.
+ * Stores cumulative delta (from start) and incremental delta (since last
+ * frame), plus total travel distance for tap detection.
+ *
+ * IMPORTANT: update() must compute deltas from `currentPosition` *before*
+ * overwriting it with `position`, otherwise all distances become zero.
  */
 class TouchTracker {
   /**
@@ -155,38 +157,62 @@ class TouchTracker {
   constructor(identifier, position, element) {
     this.identifier = identifier;
     this.startPosition = position.clone();
-    this.previousPosition = position.clone();
     this.currentPosition = position.clone();
+    this.previousPosition = position.clone();
     this.element = element;
     this.lastMoveTime = performance.now();
     this.totalDistance = 0;
+
+    // Last frame's cumulative deltas (for incremental calculation)
+    this._lastCumulativeX = 0;
+    this._lastCumulativeY = 0;
   }
 
   /**
    * Update with a new position.
-   * Computes delta from the *previous* position, not the current one.
+   *
+   * Must compute all deltas from `currentPosition` BEFORE copying `position`
+   * into it. Otherwise delta = position - position = 0.
    * @param {THREE.Vector3} position
    */
   update(position) {
-    // delta = new position − previous position (not current!)
-    const delta = new THREE.Vector3().subVectors(position, this.currentPosition);
-    this.totalDistance += delta.length();
+    // 1) Compute distance delta BEFORE overwriting currentPosition
+    const moveDist = new THREE.Vector3().subVectors(position, this.currentPosition).length();
+    this.totalDistance += moveDist;
+
+    // 2) Update cumulative delta from start
+    const cX = position.x - this.startPosition.x;
+    const cY = position.y - this.startPosition.y;
+
+    // 3) Compute incremental delta since last frame
+    this._deltaX = cX - this._lastCumulativeX;
+    this._deltaY = cY - this._lastCumulativeY;
+    this._lastCumulativeX = cX;
+    this._lastCumulativeY = cY;
+
+    // 4) Now update positions
     this.previousPosition.copy(this.currentPosition);
     this.currentPosition.copy(position);
     this.lastMoveTime = performance.now();
   }
 
-  /**
-   * @returns {number} Total horizontal movement in world units since start
-   */
-  getxDelta() {
+  /** @returns {number} Incremental horizontal delta since last update */
+  getDeltaX() {
+    return this._deltaX;
+  }
+
+  /** @returns {number} Incremental vertical delta since last update */
+  getDeltaY() {
+    return this._deltaY;
+  }
+
+  /** @returns {number} Cumulative horizontal delta from start */
+  getCumulativeX() {
     return this.currentPosition.x - this.startPosition.x;
   }
 
-  /**
-   * @returns {number} Total vertical movement in world units since start
-   */
-  getYDelta() {
+  /** @returns {number} Cumulative vertical delta from start */
+  getCumulativeY() {
     return this.currentPosition.y - this.startPosition.y;
   }
 
@@ -401,15 +427,17 @@ export class InputController {
   }
 
   /**
-   * Handle paddle drag: map horizontal touch delta to rotation angle,
-   * clamped to the paddle's limits. Resets start position each frame for
-   * continuous incremental rotation.
+   * Handle paddle drag: map incremental horizontal touch delta to rotation
+   * angle change, clamped to the paddle's limits.
+   *
+   * Uses *incremental* delta (from last frame) so the paddle rotates smoothly
+   * by the amount the finger moved, not by the total distance since start.
    * @param {TouchTracker} tracker
    * @param {PaddleElement} element
    */
   _handlePaddleDrag(tracker, element) {
-    // Use delta from previous position for smooth incremental rotation
-    const deltaX = tracker.getxDelta();
+    // Incremental delta since last frame — this is the rotation change
+    const deltaX = tracker.getDeltaX();
     const sensitivity = 1.2;
     const deltaAngle = deltaX * sensitivity;
 
@@ -428,26 +456,29 @@ export class InputController {
   }
 
   /**
-   * Handle gate drag: map vertical touch delta to panel slide position,
-   * clamped to [0, slideDistance]. Sets panel position directly each frame
-   * to avoid fighting with the element's internal lerp in update().
+   * Handle gate drag: map cumulative vertical touch delta to panel
+   * slide position.
+   *
+   * Uses cumulative delta from start so the panel follows the finger
+   * directly (position = finger Y), clamped to [0, slideDistance].
    * @param {TouchTracker} tracker
    * @param {GateElement} element
    */
   _handleGateSlide(tracker, element) {
-    const deltaY = tracker.getYDelta();
+    // Cumulative vertical delta from start → direct position mapping
+    const cumulativeY = tracker.getCumulativeY();
     const sensitivity = 1.0;
     const slideAmount = Math.max(
       0,
-      Math.min(element.slideDistance, deltaY * sensitivity),
+      Math.min(element.slideDistance, cumulativeY * sensitivity),
     );
 
     if (this._onGateSlide) {
-      this._onGateSlide(element, slideAmount, deltaY);
+      this._onGateSlide(element, slideAmount, tracker.getDeltaY());
     }
 
     // Directly set panel position — this overrides the update() lerp
-    // because we're setting it every frame during drag.
+    // because we set it every frame during drag.
     if (element.panel) {
       element.panel.position.y = slideAmount;
     }
@@ -550,16 +581,16 @@ export class InputController {
     if (wasTap && element) {
       this._handleTap(element, point);
     } else if (element && element.type === 'gate') {
-      // Finalize gate position based on drag amount
-      const slideAmount = tracker.getYDelta();
+      // Finalize gate position based on cumulative drag amount
+      const cumulativeY = tracker.getCumulativeY();
       const threshold = element.slideDistance * 0.5;
       if (element.panel) {
         element.panel.position.y =
-          slideAmount > threshold ? element.slideDistance : 0;
+          cumulativeY > threshold ? element.slideDistance : 0;
       }
       // Set gate state to match final panel position
       element.state =
-        slideAmount > threshold ? 'open' : 'closed';
+        cumulativeY > threshold ? 'open' : 'closed';
     }
 
     // Snap paddle back to limits after release
